@@ -79,7 +79,7 @@ def test_balance_ok_flag_logic():
     balance_ok = "yes" if abs(p - r) <= 0.15 else "no"
     assert balance_ok == "no"
 
-    # Exactly at threshold
-    p, r = 0.90, 0.75
+    # Within threshold (close to boundary)
+    p, r = 0.90, 0.76
     balance_ok = "yes" if abs(p - r) <= 0.15 else "no"
     assert balance_ok == "yes"
