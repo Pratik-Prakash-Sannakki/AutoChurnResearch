@@ -1,0 +1,8 @@
+kagglehub
+scikit-learn
+xgboost
+lightgbm
+imbalanced-learn
+pandas
+numpy
+pytest
