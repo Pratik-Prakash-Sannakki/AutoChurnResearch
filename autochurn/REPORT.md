@@ -220,32 +220,86 @@ Used Claude Code's worktree isolation to run multiple experiments simultaneously
 
 ## 6. Feature Engineering (Final Model)
 
+The final model uses **32 features**: 19 original columns (with 3 re-encoded) plus 13 engineered features. Every engineered feature has a specific data-science rationale tied to the churn signals discovered during exploration.
+
 ### 6.1 Categorical Encoding
-- State, International plan, Voice mail plan → LabelEncoder
 
-### 6.2 Usage Aggregates
-- Total minutes = day + eve + night + intl
-- Total calls = day + eve + night + intl
-- Total charge = day + eve + night + intl
+| Original Column | Encoding | Values | Why |
+|-----------------|----------|--------|-----|
+| State | LabelEncoder (0-50) | 51 US states | Gradient boosting can learn geographic patterns from integer encoding; tree splits find high-churn states (NJ=28.3%, MD=27.8%) naturally |
+| International plan | LabelEncoder (0/1) | Yes → 1, No → 0 | Binary flag; 40.2% churn for holders vs 11.8% — the 2nd strongest individual predictor |
+| Voice mail plan | LabelEncoder (0/1) | Yes → 1, No → 0 | Protective signal; 8.5% churn with plan vs 16.8% without — indicates customer engagement |
 
-### 6.3 Ratio Features
-- Charge per minute = total_charge / total_minutes
-- Charge per call = total_charge / total_calls
-- Calls per minute = total_calls / total_minutes
-- Day minutes ratio = day_minutes / total_minutes
-- Day charge ratio = day_charge / total_charge
+**Design decision**: LabelEncoder was chosen over one-hot encoding because tree-based models handle ordinal integers efficiently, and 51 one-hot columns for State would create sparse, high-dimensional features that slow training without improving splits.
 
-### 6.4 Interaction Features
-- CS calls squared (captures non-linear CS effect)
-- CS calls x international plan (two strongest signals combined)
-- CS calls x day charge (high-usage frustrated customers)
-- CS calls x total charge (spending + frustration)
-- High CS flag (>= 4 calls, binary)
-- Intl plan x intl minutes (plan holders who use it heavily)
-- Intl plan x intl charge (same, charge variant)
-- Vmail plan x vmail messages (engagement signal)
+### 6.2 Usage Aggregates (3 features)
 
-**Total features**: 32 (19 original + 13 engineered)
+| Feature | Formula | Rationale |
+|---------|---------|-----------|
+| Total minutes | day_min + eve_min + night_min + intl_min | Overall usage volume; high-usage customers (top quartile: >396 min) churn more — they're power users with higher expectations |
+| Total calls | day_calls + eve_calls + night_calls + intl_calls | Call frequency independent of duration; complements minutes by capturing call behavior patterns |
+| Total charge | day_charge + eve_charge + night_charge + intl_charge | Revenue at risk per customer; enables the model to weight high-value churners more heavily in splits |
+
+**Why aggregate?** Individual period features (day/eve/night/intl) are already in the dataset. Aggregates let the model split on total behavior vs. period-specific behavior — a customer with 300 total minutes across periods looks different from one with 300 day minutes and 0 elsewhere.
+
+### 6.3 Ratio Features (5 features)
+
+| Feature | Formula | Rationale |
+|---------|---------|-----------|
+| Charge per minute | total_charge / total_minutes | Rate anomaly detection. The telecom charges fixed rates per period (day=0.17/min, eve=0.085/min, night=0.045/min, intl=0.27/min), so this ratio should be ~constant. Outliers suggest data issues or special plans — signals the model can exploit |
+| Charge per call | total_charge / total_calls | Revenue per call. Customers making many short calls (low charge/call) have different patterns than those making few long calls. Different churn profiles |
+| Calls per minute | total_calls / total_minutes | Call frequency density. High values = many short calls (possibly business users). Low values = few long calls (possibly personal). Captures behavioral archetype |
+| Day minutes ratio | day_min / total_minutes | Daytime usage concentration. Customers who use most minutes during day (business pattern) vs evening (personal) have different churn drivers |
+| Day charge ratio | day_charge / total_charge | Revenue concentration. Day charges are highest rate (0.17/min vs 0.045/min night). Customers paying mostly day rates are more price-sensitive — stronger churn signal |
+
+**Numerical stability**: All divisions use `.clip(lower=1e-6)` or `.clip(lower=1)` to prevent division-by-zero for customers with zero usage in any period.
+
+### 6.4 Customer Service Interaction Features (5 features)
+
+These features exploit the strongest single predictor in the dataset: **customer service calls >= 4 creates a step-function from ~10% to ~50% churn rate**.
+
+| Feature | Formula | Rationale |
+|---------|---------|-----------|
+| CS calls squared | csc^2 | Captures the **non-linear** relationship between service calls and churn. Linear CS calls gives equal weight to 1→2 and 4→5, but the churn jump at 4+ is disproportionately large. Squaring amplifies this: 4^2=16 vs 3^2=9 (78% increase) vs 2^2=4 to 3^2=9 (125% increase) |
+| CS calls x intl plan | csc * intl_plan_encoded | **Combines the two strongest signals**. An international plan holder (40% base churn) who also calls support frequently is at extreme risk. This interaction lets the model identify the highest-risk segment: intl_plan=Yes AND csc>=4 → estimated >70% churn probability |
+| CS calls x day charge | csc * day_charge | High-spending frustrated customers. Someone paying $40+/day in charges AND calling support repeatedly is a high-value customer at high risk — the most costly type of churn to miss |
+| CS calls x total charge | csc * total_charge | Same logic as above but across all periods. Captures the "expensive and unhappy" customer segment that retention teams should prioritize |
+| High CS flag | 1 if csc >= 4, else 0 | **Binary step-function** at the critical threshold. While CS calls squared captures gradation, this flag gives the model a clean split point at exactly the threshold where churn probability jumps from ~10% to ~49%. Tree models can use this for a single decisive split |
+
+### 6.5 Plan Interaction Features (3 features)
+
+| Feature | Formula | Rationale |
+|---------|---------|-----------|
+| Intl plan x intl minutes | intl_plan * intl_minutes | Distinguishes plan holders by actual usage. An intl plan holder using 0 international minutes (paying for unused service) has a different churn profile than one using 15+ minutes (getting value from the plan). Heavy users may churn if rates increase; non-users may churn because they're wasting money |
+| Intl plan x intl charge | intl_plan * intl_charge | Same concept via charges. Since intl rate is 0.27/min (the highest), this highlights the revenue impact of international plan churn — high-charge intl users are the most valuable to retain |
+| Vmail plan x vmail messages | vmail_plan * vmail_messages | **Engagement indicator**. Voicemail plan holders who actively use voicemail (high message count) are engaged customers — low churn risk. Plan holders with 0 messages are paying for unused features — possible dissatisfaction signal |
+
+### 6.6 Feature Summary Table
+
+| Category | Count | Features | Signal Type |
+|----------|-------|----------|-------------|
+| Original numeric | 14 | Account length, Area code, Vmail messages, Day/Eve/Night/Intl mins/calls/charge, CS calls | Raw behavioral data |
+| Encoded categorical | 3 | State, Intl plan, Vmail plan | Segment identifiers |
+| Usage aggregates | 3 | Total mins/calls/charge | Overall behavior |
+| Ratios | 5 | Charge/min, Charge/call, Calls/min, Day min ratio, Day charge ratio | Normalized patterns |
+| CS interactions | 5 | CS^2, CS x intl, CS x day charge, CS x total charge, High CS flag | Risk amplifiers |
+| Plan interactions | 3 | Intl x intl_min, Intl x intl_charge, Vmail x vmail_msgs | Engagement signals |
+| **Total** | **32** | | |
+
+### 6.7 Features Explored But Not in Final Model
+
+The following features were tested in earlier experiments but dropped from the winning Run 4:
+
+| Feature | Tested In | F1 Impact | Why Dropped |
+|---------|-----------|-----------|-------------|
+| Neo4j state_churn_rate | Run 1 (0.924) | Positive | Run 4 achieved higher F1 without it; LabelEncoded State + more trees captured same signal |
+| Neo4j neighbor_churn_rate | Run 1 (0.924) | Positive | Same as above; behavioral similarity signal absorbed by tree depth |
+| Neo4j similar_degree | Run 1 (0.924) | Marginal | Graph centrality didn't add unique signal beyond usage features |
+| Charge-per-minute per period | Run 2 (0.808) | Neutral | Near-constant values (fixed rates) — aggregated ratio was sufficient |
+| Day minutes squared | Run 1 (0.924) | Marginal | CS calls squared was more impactful; day_min already captured by ratios |
+| Account length bins | Early experiments | Negligible | No meaningful churn variation by account tenure in this dataset |
+
+**Key insight**: Graph features provided the initial breakthrough (baseline → 0.924) but were superseded by better hyperparameter tuning in the final model. In a production setting with more diverse data, graph features would likely remain valuable.
 
 ---
 
