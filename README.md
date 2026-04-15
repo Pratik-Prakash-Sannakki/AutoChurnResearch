@@ -52,10 +52,24 @@ Key predictors discovered:
 
 ## Graph Features (Neo4j)
 
-Customer similarity graph built in Neo4j with 3,333 nodes and 33,927 behavioral similarity edges. Computed features:
-- State-level churn rate (geographic risk)
-- Neighbor churn rate (behavioral contagion)
-- Similar degree (graph centrality)
+Customer similarity graph built in Neo4j using the following graph data science methods:
+
+**Graph Construction**:
+- **Hub-and-spoke pattern**: State and AreaCode hub nodes with `IN_STATE` / `IN_AREA` relationships (3,333 edges each)
+- **k-Nearest Neighbors (kNN) similarity**: Customers connected via `SIMILAR` edges based on Euclidean distance on normalized usage features (day/eve/night/intl minutes + CS calls). Threshold: distance < 0.3. Produced 33,927 behavioral similarity edges.
+
+**Graph Feature Extraction Methods**:
+| Feature | Method | Description |
+|---------|--------|-------------|
+| state_churn_rate | **Node aggregation via hub** | Mean churn label of all training customers connected to the same State hub node |
+| area_churn_rate | **Node aggregation via hub** | Same as above for AreaCode hub |
+| neighbor_churn_rate | **Neighborhood aggregation** | Mean churn label of all SIMILAR-connected training neighbors (1-hop traversal) |
+| similar_degree | **Degree centrality** | Count of SIMILAR edges per customer — measures behavioral connectedness |
+| state_intl_rate | **Hub-level feature propagation** | Fraction of international plan holders in the customer's state |
+| state_avg_csc | **Hub-level feature propagation** | Average customer service calls in the customer's state |
+| state_customer_count | **Hub cardinality** | Number of customers per state — normalizes small-sample states |
+
+**Leakage prevention**: All aggregates computed from training labels only. Test customers receive their state/area's train-computed rates.
 
 Graph features drove the initial breakthrough (F1: 0.149 -> 0.924) but the final model achieved 0.935 without them via better hyperparameter tuning.
 
