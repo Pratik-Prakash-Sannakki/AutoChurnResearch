@@ -93,13 +93,14 @@ For the full writeup including data exploration, feature engineering rationale, 
 
 ```bash
 cd autochurn
-pip install -r requirements.txt
-python prepare.py          # Download + cache data split
-python experiment.py       # Run winning model -> F1=0.935
+uv sync                    # Install dependencies
+uv run python prepare.py   # Download + cache data split
+uv run python experiment.py # Run winning model -> F1=0.935
 ```
 
 ## Tech Stack
 
-- Python 3.11, scikit-learn, XGBoost, LightGBM, imbalanced-learn
+- Python 3.11, [uv](https://docs.astral.sh/uv/) (package manager)
+- scikit-learn, XGBoost, LightGBM, imbalanced-learn
 - Neo4j (graph feature engineering)
 - pandas, numpy, pytest
