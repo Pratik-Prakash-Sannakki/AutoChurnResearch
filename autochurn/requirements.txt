@@ -6,3 +6,4 @@ imbalanced-learn
 pandas
 numpy
 pytest
+neo4j
