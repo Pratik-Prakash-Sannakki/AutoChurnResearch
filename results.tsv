@@ -1,0 +1,8 @@
+commit	precision	recall	f1	balance_ok	status	description
+5ab2eaf	0.144231	0.154639	0.149254	yes	keep	baseline DummyClassifier stratified
+aa5bffd	0.977011	0.876289	0.923913	yes	keep	LGBM+XGB ensemble SMOTE graph features threshold=0.600
+ff0bc25	0.812500	0.804124	0.808290	yes	discard	3-model ensemble (LGBM+XGB+RF) from scratch
+b22c2c9	0.955556	0.886598	0.919786	yes	discard	Stacking 5-model ensemble passthrough
+f0f3313	0.988506	0.886598	0.934783	yes	keep	LGBM(1500,lr=0.01)+XGB(1200,lr=0.015) SMOTE threshold=0.535
+-------	0.945055	0.886598	0.914894	yes	discard	BorderlineSMOTE instead of SMOTE (worse)
+-------	0.976744	0.865979	0.918033	yes	discard	ADASYN instead of SMOTE (worse)
