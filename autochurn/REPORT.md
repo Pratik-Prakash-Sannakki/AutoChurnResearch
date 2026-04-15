@@ -152,15 +152,15 @@ Built a customer graph in Neo4j with 3,333 nodes and three relationship types:
 
 All aggregates computed from **training labels only** to prevent data leakage:
 
-| Feature | Description | Rationale |
-|---------|-------------|-----------|
-| state_churn_rate | Average churn rate in customer's state | Geographic risk |
-| state_customer_count | Number of customers in state | State size normalization |
-| state_intl_rate | Fraction of intl plan holders in state | Regional plan adoption |
-| state_avg_csc | Average CS calls in state | Regional service quality |
-| area_churn_rate | Churn rate by area code | Local market risk |
-| neighbor_churn_rate | Avg churn of SIMILAR neighbors | Behavioral contagion |
-| similar_degree | Count of SIMILAR connections | Social connectedness |
+| Feature | Graph Method | Description | Rationale |
+|---------|-------------|-------------|-----------|
+| state_churn_rate | Node aggregation via State hub | Average churn label of all training customers connected to the same State hub node | Geographic risk — NJ=28.3% vs WY=4.3% churn; customers in high-churn states carry elevated baseline risk |
+| state_customer_count | Hub cardinality | Count of customers connected to each State hub | State size normalization — small states (n<30) produce noisy churn rates; this feature lets the model discount them |
+| state_intl_rate | Hub-level feature propagation | Fraction of international plan holders among training customers in the same state | Regional plan adoption — states with high intl plan density may have different competitive dynamics or demographics |
+| state_avg_csc | Hub-level feature propagation | Mean customer service calls across training customers in the same state | Regional service quality signal — high state-level CS calls may indicate local network issues or poor regional support |
+| area_churn_rate | Node aggregation via AreaCode hub | Average churn label of training customers sharing the same area code (408/415/510) | Local market risk — captures area-code-level competitive pressure or service quality differences |
+| neighbor_churn_rate | Neighborhood aggregation (1-hop traversal on SIMILAR edges) | Mean churn label of all SIMILAR-connected training neighbors | Behavioral contagion — if customers with similar usage patterns are churning, you're likely at risk too. This is the core graph data science feature |
+| similar_degree | Degree centrality on SIMILAR edges | Count of behavioral similarity connections per customer | Social connectedness — isolated customers (degree=0) vs. well-connected ones may respond differently to churn triggers; also serves as a density proxy for the customer's behavioral neighborhood |
 
 ### 4.3 Graph Feature Impact
 
