@@ -141,12 +141,32 @@ With only **14.5% positive class**, naive models will predict "no churn" for eve
 Built a customer graph in Neo4j with 3,333 nodes and three relationship types:
 
 ```
-(:Customer)-[:IN_STATE]->(:State)     # 3,333 edges
-(:Customer)-[:IN_AREA]->(:AreaCode)   # 3,333 edges
-(:Customer)-[:SIMILAR]->(:Customer)   # 33,927 edges
+(:Customer)-[:IN_STATE]->(:State)     # 3,333 edges (hub-and-spoke)
+(:Customer)-[:IN_AREA]->(:AreaCode)   # 3,333 edges (hub-and-spoke)
+(:Customer)-[:SIMILAR]->(:Customer)   # 33,927 edges (kNN similarity)
 ```
 
-**SIMILAR edges** connect customers in the same state with Euclidean distance < 0.3 on normalized usage features (day/eve/night/intl minutes + customer service calls).
+**Edge construction methods:**
+
+**Hub-and-spoke (State / AreaCode):** Created hub nodes for each State (51 hubs) and AreaCode (3 hubs). Every customer connects to their respective hubs. This enables efficient aggregation — computing state-level metrics requires traversing one hop from the hub rather than scanning all customers.
+
+**k-Nearest Neighbors (kNN) similarity:** The core graph data science method for building behavioral similarity edges. Process:
+
+1. **Feature selection**: 5 usage features — Total day minutes, Total eve minutes, Total night minutes, Total intl minutes, Customer service calls
+2. **Min-max normalization**: Each feature scaled to [0, 1] range within Neo4j using Cypher:
+   ```
+   norm_feature = (value - min) / (max - min)
+   ```
+3. **Distance computation**: Euclidean distance between every pair of customers within the same state:
+   ```
+   dist = sqrt((a.norm_day - b.norm_day)^2 + (a.norm_eve - b.norm_eve)^2 + 
+               (a.norm_night - b.norm_night)^2 + (a.norm_intl - b.norm_intl)^2 + 
+               (a.norm_csc - b.norm_csc)^2)
+   ```
+4. **Threshold filtering**: Only pairs with `dist < 0.3` are connected (epsilon-neighborhood approach). This produced 33,927 SIMILAR edges — an average of ~10 neighbors per customer.
+5. **Distance stored as edge property**: `(:Customer)-[:SIMILAR {distance: 0.17}]->(:Customer)` for potential weighted aggregation.
+
+**Why kNN over other methods?** kNN similarity is well-suited for finding behavioral clusters in tabular data. Unlike correlation-based methods, Euclidean distance on normalized features captures customers who are "close" in multi-dimensional usage space. The within-state constraint ensures geographic locality — a high-usage customer in NJ is only compared to other NJ customers, not to similar customers in a completely different market.
 
 ### 4.2 Graph Features Computed
 
